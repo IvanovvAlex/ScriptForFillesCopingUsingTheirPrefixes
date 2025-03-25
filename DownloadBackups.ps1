@@ -48,11 +48,23 @@ function Main {
 
         $remoteFiles = Get-ChildItem -Path $config.RemotePath -File
 
-        $matchedFiles = $remoteFiles | Where-Object {
-            foreach ($prefix in $config.Prefixes) {
-                if ($_.Name.StartsWith($prefix)) { return $true }
+        $matchedFiles = @()
+
+        foreach ($prefix in $config.Prefixes) {
+            $matched = $remoteFiles | Where-Object { $_.Name.StartsWith($prefix) }
+
+            if ($matched.Count -gt 0) {
+                # Parse date from filename and pick the latest
+                $latest = $matched | Sort-Object {
+                    if ($_ -match "$prefix(\d{4}_\d{2}_\d{2}_\d{6})") {
+                        [datetime]::ParseExact($matches[1], "yyyy_MM_dd_HHmmss", $null)
+                    } else {
+                        [datetime]::MinValue
+                    }
+                } -Descending | Select-Object -First 1
+
+                $matchedFiles += $latest
             }
-            return $false
         }
 
         if ($matchedFiles.Count -eq 0) {
