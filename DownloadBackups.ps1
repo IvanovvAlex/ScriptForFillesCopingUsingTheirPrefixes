@@ -92,7 +92,8 @@ RESTORE DATABASE [$dbName] FROM DISK = N'$($bak.FullName)' WITH RECOVERY, REPLAC
 
         if ($LASTEXITCODE -eq 0) {
             Show-Message "Successfully restored $dbName." "SUCCESS"
-        } else {
+        }
+        else {
             Show-Message "Failed to restore $dbName." "ERROR"
         }
     }
@@ -120,7 +121,8 @@ function Main($action) {
                     $latest = $matched | Sort-Object {
                         if ($_ -match "$prefix(\d{4}_\d{2}_\d{2}_\d{6})") {
                             [datetime]::ParseExact($matches[1], "yyyy_MM_dd_HHmmss", $null)
-                        } else {
+                        }
+                        else {
                             [datetime]::MinValue
                         }
                     } -Descending | Select-Object -First 1
@@ -131,6 +133,11 @@ function Main($action) {
 
             if ($matchedFiles.Count -eq 0) {
                 throw "No matching files found on remote path."
+            }
+
+            if (!(Test-Path $config.ArchivePath)) {
+                New-Item -Path $config.ArchivePath -ItemType Directory -Force | Out-Null
+                Show-Message "Created archive folder: $($config.ArchivePath)" "INFO"
             }
 
             Show-Message "Step 2 & 3: Syncing files from remote..."
@@ -151,7 +158,8 @@ function Main($action) {
                     if ($sourceHash.Hash -eq $destHash.Hash) {
                         Show-Message "File '$($file.Name)' already exists and is identical. Skipping." "INFO"
                         $shouldCopy = $false
-                    } else {
+                    }
+                    else {
                         # Archive the old version before replacing
                         $archivePath = Join-Path $config.ArchivePath $file.Name
                         Move-Item -Path $destination -Destination $archivePath -Force
