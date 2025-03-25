@@ -8,10 +8,18 @@ if (-Not (Test-Path $configPath)) {
 
 $config = Get-Content $configPath -Raw | ConvertFrom-Json
 
-$validActions = @("Download", "Restore", "Both")
+$actionMap = @{
+    "D" = "Download"
+    "R" = "Restore"
+    "B" = "Both"
+}
+
 do {
-    $action = Read-Host "Choose an action: [Download], [Restore], or [Both]"
-} while (-not $validActions -contains $action)
+    $inputAction = Read-Host "Choose an action: [D]ownload, [R]estore, or [B]oth"
+    $normalizedAction = $inputAction.Trim().ToUpper()
+} while (-not $actionMap.ContainsKey($normalizedAction))
+
+$action = $actionMap[$normalizedAction]
 
 Add-Type -TypeDefinition @"
 using System;
@@ -23,10 +31,10 @@ public class SleepUtil {
 }
 "@
 
-[Sleeputil]::SetThreadExecutionState(0x80000001)
+[Sleeputil]::SetThreadExecutionState([uint32]0x80000001)
 
 function RestoreSleep() {
-    [Sleeputil]::SetThreadExecutionState(0x80000000)
+    [Sleeputil]::SetThreadExecutionState([uint32]0x80000000)
 }
 
 function Show-Message($msg, $type = "INFO") {
