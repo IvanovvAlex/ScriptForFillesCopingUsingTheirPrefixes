@@ -27,15 +27,17 @@ Create a file named `config.json` in the same folder as the script with the foll
 ```json
 {
   "RemotePath": "",
-  "Prefixes": [
-    "",
-    "",
-    "",
-    "",
-    ""
-  ],
+  "Prefixes": ["", "", "", "", ""],
   "LocalPath": "",
-  "ArchivePath": ""
+  "ArchivePath": "",
+  "SqlServerInstance": "",
+  "DbMap": {
+    "": "",
+    "": "",
+    "": "",
+    "": "",
+    "": ""
+  }
 }
 ```
 
@@ -79,6 +81,7 @@ Execute the script using:
 ## 🔁 Rollback Mechanism
 
 In case of error:
+
 - Newly copied files will be deleted
 - Archived `.bak` files will be restored
 

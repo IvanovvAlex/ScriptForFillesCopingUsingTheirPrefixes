@@ -8,6 +8,11 @@ if (-Not (Test-Path $configPath)) {
 
 $config = Get-Content $configPath -Raw | ConvertFrom-Json
 
+$validActions = @("Download", "Restore", "Both")
+do {
+    $action = Read-Host "Choose an action: [Download], [Restore], or [Both]"
+} while (-not $validActions -contains $action)
+
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
@@ -22,7 +27,7 @@ public class SleepUtil {
 # ES_CONTINUOUS (0x80000000) | ES_SYSTEM_REQUIRED (0x00000001)
 [Sleeputil]::SetThreadExecutionState(0x80000001)
 
-function RestoreSleep(){
+function RestoreSleep() {
     # Re-enable sleep
     [Sleeputil]::SetThreadExecutionState(0x80000000)
 }
@@ -54,66 +59,128 @@ function Rollback {
     Show-Message "Rollback completed." "DONE"
 }
 
-function Main {
+function Restore-Database {
+    Show-Message "Step 5: Restoring databases..." "INFO"
+
+    $bakFiles = Get-ChildItem -Path $config.LocalPath -Filter *.bak -File
+
+    foreach ($bak in $bakFiles) {
+        $matchedPrefix = $null
+        foreach ($prefix in $config.DbMap.Keys) {
+            if ($bak.Name.StartsWith($prefix)) {
+                $matchedPrefix = $prefix
+                break
+            }
+        }
+
+        if (-not $matchedPrefix) {
+            Show-Message "No DB mapping found for file $($bak.Name). Skipping." "WARN"
+            continue
+        }
+
+        $dbName = $config.DbMap[$matchedPrefix]
+        Show-Message "Restoring database '$dbName' from '$($bak.FullName)'" "INFO"
+
+        $restoreQuery = @"
+USE [master];
+IF DB_ID(N'$dbName') IS NOT NULL
+BEGIN
+    ALTER DATABASE [$dbName] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+    DROP DATABASE [$dbName];
+END;
+RESTORE DATABASE [$dbName] FROM DISK = N'$($bak.FullName)' WITH RECOVERY, REPLACE;
+"@
+
+        sqlcmd -S $config.SqlServerInstance -Q $restoreQuery
+
+        if ($LASTEXITCODE -eq 0) {
+            Show-Message "Successfully restored $dbName." "SUCCESS"
+        } else {
+            Show-Message "Failed to restore $dbName." "ERROR"
+        }
+    }
+}
+
+function Main($action) {
     $copiedFiles = @()
     $movedFiles = @()
 
     try {
-        Show-Message "Step 1: Connecting to remote path: $($config.RemotePath)"
+        if ($action -eq "Download" -or $action -eq "Both") {
+            Show-Message "Step 1: Connecting to remote path: $($config.RemotePath)"
 
-        if (!(Test-Path $config.RemotePath)) {
-            throw "Remote path $($config.RemotePath) not accessible."
-        }
-
-        $remoteFiles = Get-ChildItem -Path $config.RemotePath -File
-
-        $matchedFiles = @()
-
-        foreach ($prefix in $config.Prefixes) {
-            $matched = $remoteFiles | Where-Object { $_.Name.StartsWith($prefix) }
-
-            if ($matched.Count -gt 0) {
-                # Parse date from filename and pick the latest
-                $latest = $matched | Sort-Object {
-                    if ($_ -match "$prefix(\d{4}_\d{2}_\d{2}_\d{6})") {
-                        [datetime]::ParseExact($matches[1], "yyyy_MM_dd_HHmmss", $null)
-                    } else {
-                        [datetime]::MinValue
-                    }
-                } -Descending | Select-Object -First 1
-
-                $matchedFiles += $latest
+            if (!(Test-Path $config.RemotePath)) {
+                throw "Remote path $($config.RemotePath) not accessible."
             }
+
+            $remoteFiles = Get-ChildItem -Path $config.RemotePath -File
+            $matchedFiles = @()
+
+            foreach ($prefix in $config.Prefixes) {
+                $matched = $remoteFiles | Where-Object { $_.Name.StartsWith($prefix) }
+
+                if ($matched.Count -gt 0) {
+                    $latest = $matched | Sort-Object {
+                        if ($_ -match "$prefix(\d{4}_\d{2}_\d{2}_\d{6})") {
+                            [datetime]::ParseExact($matches[1], "yyyy_MM_dd_HHmmss", $null)
+                        } else {
+                            [datetime]::MinValue
+                        }
+                    } -Descending | Select-Object -First 1
+
+                    $matchedFiles += $latest
+                }
+            }
+
+            if ($matchedFiles.Count -eq 0) {
+                throw "No matching files found on remote path."
+            }
+
+            Show-Message "Step 2: Moving existing .bak files to archive..."
+
+            $existingBakFiles = Get-ChildItem -Path $config.LocalPath -File -Filter "*.bak"
+            foreach ($file in $existingBakFiles) {
+                $destination = Join-Path $config.ArchivePath $file.Name
+                Move-Item -Path $file.FullName -Destination $destination -Force
+                $movedFiles += [PSCustomObject]@{ Original = $file.FullName; Destination = $destination }
+            }
+
+            Show-Message "Step 3: Copying files from remote..."
+
+            $i = 0
+            foreach ($file in $matchedFiles) {
+                $i++
+                $percent = [int](($i / $matchedFiles.Count) * 100)
+                Write-Progress -Activity "Copying files" -Status "$percent% Complete" -PercentComplete $percent
+
+                $destination = Join-Path $config.LocalPath $file.Name
+
+                $shouldCopy = $true
+
+                if (Test-Path $destination) {
+                    $sourceHash = Get-FileHash -Path $file.FullName -Algorithm SHA256
+                    $destHash = Get-FileHash -Path $destination -Algorithm SHA256
+
+                    if ($sourceHash.Hash -eq $destHash.Hash) {
+                        Show-Message "File '$($file.Name)' already exists and is identical. Skipping." "INFO"
+                        $shouldCopy = $false
+                    }
+                }
+
+                if ($shouldCopy) {
+                    Copy-Item -Path $file.FullName -Destination $destination -Force
+                    $copiedFiles += $destination
+                    Show-Message "Copied: $($file.Name)" "INFO"
+                }
+            }
+
+            Write-Progress -Activity "Copying files" -Completed
+            Show-Message "Step 4: All files copied successfully." "SUCCESS"
         }
 
-        if ($matchedFiles.Count -eq 0) {
-            throw "No matching files found on remote path."
+        if ($action -eq "Restore" -or $action -eq "Both") {
+            Restore-Database
         }
-
-        Show-Message "Step 2: Moving existing .bak files to archive..."
-
-        $existingBakFiles = Get-ChildItem -Path $config.LocalPath -File -Filter "*.bak"
-        foreach ($file in $existingBakFiles) {
-            $destination = Join-Path $config.ArchivePath $file.Name
-            Move-Item -Path $file.FullName -Destination $destination -Force
-            $movedFiles += [PSCustomObject]@{ Original = $file.FullName; Destination = $destination }
-        }
-
-        Show-Message "Step 3: Copying files from remote..."
-
-        $i = 0
-        foreach ($file in $matchedFiles) {
-            $i++
-            $percent = [int](($i / $matchedFiles.Count) * 100)
-            Write-Progress -Activity "Copying files" -Status "$percent% Complete" -PercentComplete $percent
-
-            $destination = Join-Path $config.LocalPath $file.Name
-            Copy-Item -Path $file.FullName -Destination $destination -Force
-            $copiedFiles += $destination
-        }
-
-        Write-Progress -Activity "Copying files" -Completed
-        Show-Message "Step 4: All files copied successfully." "SUCCESS"
     }
     catch {
         Show-Message "ERROR: $_" "ERROR"
@@ -122,14 +189,13 @@ function Main {
 }
 
 try {
-    Main
+    Main $action
 }
 catch {
     Write-Host "[FATAL ERROR] $($_.Exception.Message)" -ForegroundColor Red
 }
 finally {
     RestoreSleep
-
     Write-Host "`nPress any key to exit..."
     $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 }
