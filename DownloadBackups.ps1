@@ -31,10 +31,9 @@ public class SleepUtil {
 }
 "@
 
-[Sleeputil]::SetThreadExecutionState([uint32]0x80000001)
-
+[Sleeputil]::SetThreadExecutionState([uint32]2147483649) | Out-Null
 function RestoreSleep() {
-    [Sleeputil]::SetThreadExecutionState([uint32]0x80000000)
+    [Sleeputil]::SetThreadExecutionState([uint32]2147483648) | Out-Null
 }
 
 function Show-Message($msg, $type = "INFO") {
@@ -65,7 +64,7 @@ function Rollback {
 }
 
 function Restore-Database {
-    Show-Message "Step 5: Restoring databases..." "INFO"
+    Show-Message "Restoring databases..." "INFO"
 
     $bakFiles = Get-ChildItem -Path $config.LocalPath -Filter *.bak -File
 
@@ -113,7 +112,7 @@ function Main($action) {
 
     try {
         if ($action -eq "Download" -or $action -eq "Both") {
-            Show-Message "Step 1: Connecting to remote path: $($config.RemotePath)"
+            Show-Message "Connecting to remote path: $($config.RemotePath)"
 
             if (!(Test-Path $config.RemotePath)) {
                 throw "Remote path $($config.RemotePath) not accessible."
@@ -148,7 +147,7 @@ function Main($action) {
                 Show-Message "Created archive folder: $($config.ArchivePath)" "INFO"
             }
 
-            Show-Message "Step 2 & 3: Syncing files from remote..."
+            Show-Message "Syncing files from remote..."
 
             $i = 0
             foreach ($file in $matchedFiles) {
@@ -205,6 +204,4 @@ catch {
 }
 finally {
     RestoreSleep
-    Write-Host "`nPress any key to exit..."
-    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 }
