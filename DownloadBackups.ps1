@@ -2,7 +2,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $configPath = Join-Path $scriptDir "config.json"
 
 if (-Not (Test-Path $configPath)) {
-    Write-Host "[ERROR] Configuration file not found: $configPath"
+    Show-Message "Configuration file not found: $configPath" "ERROR"
     exit 1
 }
 
@@ -50,9 +50,23 @@ function RestoreSleep() {
     [Sleeputil]::SetThreadExecutionState([uint32]2147483648) | Out-Null
 }
 
-function Show-Message($msg, $type = "INFO") {
+function Show-Message {
+    param (
+        [string]$msg,
+        [ValidateSet("INFO", "WARN", "ERROR", "SUCCESS", "DONE")]
+        [string]$type = "INFO"
+    )
+
     $prefix = "[{0}] {1}" -f $type, (Get-Date -Format "HH:mm:ss")
-    Write-Host "$prefix $msg"
+
+    switch ($type) {
+        "INFO"    { Write-Host "$prefix [INFO] $msg" -ForegroundColor White -BackgroundColor DarkCyan }
+        "WARN"    { Write-Host "$prefix [WARN] $msg" -ForegroundColor Yellow -BackgroundColor DarkGray }
+        "ERROR"   { Write-Host "$prefix [ERROR] $msg" -ForegroundColor White -BackgroundColor DarkRed }
+        "SUCCESS" { Write-Host "$prefix [OK] $msg" -ForegroundColor Black -BackgroundColor Green }
+        "DONE"    { Write-Host "$prefix [DONE] $msg" -ForegroundColor Black -BackgroundColor Cyan }
+        default   { Write-Host "$prefix $msg" }
+    }
 }
 
 function Rollback {
@@ -220,7 +234,7 @@ try {
     Main $action
 }
 catch {
-    Write-Host "[FATAL ERROR] $($_.Exception.Message)" -ForegroundColor Red
+    Show-Message -msg "FATAL ERROR: $($_.Exception.Message)" -type "ERROR"
 }
 finally {
     RestoreSleep
