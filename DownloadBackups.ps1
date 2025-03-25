@@ -6,8 +6,20 @@ if (-Not (Test-Path $configPath)) {
     exit 1
 }
 
-$config = Get-Content $configPath -Raw | ConvertFrom-Json
+$configRaw = Get-Content $configPath -Raw | ConvertFrom-Json
 
+$config = [ordered]@{
+    RemotePath = $configRaw.RemotePath
+    Prefixes = $configRaw.Prefixes
+    LocalPath = $configRaw.LocalPath
+    ArchivePath = $configRaw.ArchivePath
+    SqlServerInstance = $configRaw.SqlServerInstance
+    DbMap = @{}
+}
+
+foreach ($key in $configRaw.DbMap.PSObject.Properties.Name) {
+    $config.DbMap[$key] = $configRaw.DbMap.$key
+}
 $actionMap = @{
     "D" = "Download"
     "R" = "Restore"
@@ -64,46 +76,7 @@ function Rollback {
 }
 
 function Restore-Database {
-    Show-Message "Restoring databases..." "INFO"
-
-    $bakFiles = Get-ChildItem -Path $config.LocalPath -Filter *.bak -File
-
-    foreach ($bak in $bakFiles) {
-        $matchedPrefix = $null
-        foreach ($prefix in $config.DbMap.Keys) {
-            if ($bak.Name.StartsWith($prefix)) {
-                $matchedPrefix = $prefix
-                break
-            }
-        }
-
-        if (-not $matchedPrefix) {
-            Show-Message "No DB mapping found for file $($bak.Name). Skipping." "WARN"
-            continue
-        }
-
-        $dbName = $config.DbMap[$matchedPrefix]
-        Show-Message "Restoring database '$dbName' from '$($bak.FullName)'" "INFO"
-
-        $restoreQuery = @"
-USE [master];
-IF DB_ID(N'$dbName') IS NOT NULL
-BEGIN
-    ALTER DATABASE [$dbName] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-    DROP DATABASE [$dbName];
-END;
-RESTORE DATABASE [$dbName] FROM DISK = N'$($bak.FullName)' WITH RECOVERY, REPLACE;
-"@
-
-        sqlcmd -S $config.SqlServerInstance -Q $restoreQuery
-
-        if ($LASTEXITCODE -eq 0) {
-            Show-Message "Successfully restored $dbName." "SUCCESS"
-        }
-        else {
-            Show-Message "Failed to restore $dbName." "ERROR"
-        }
-    }
+    Show-Message "Restoring Is Not Developed Yet" "INFO"
 }
 
 function Main($action) {
