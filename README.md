@@ -31,6 +31,8 @@ Create a file named `config.json` in the same folder as the script with the foll
   "LocalPath": "",
   "ArchivePath": "",
   "SqlServerInstance": "",
+  "SqlDataPath": "",
+  "SqlLogPath": "",
   "DbMap": {
     "": "",
     "": "",

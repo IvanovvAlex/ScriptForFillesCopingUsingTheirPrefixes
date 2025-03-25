@@ -14,6 +14,8 @@ $config = [ordered]@{
     LocalPath = $configRaw.LocalPath
     ArchivePath = $configRaw.ArchivePath
     SqlServerInstance = $configRaw.SqlServerInstance
+    SqlDataPath = $configRaw.SqlDataPath
+    SqlLogPath = $configRaw.SqlLogPath
     DbMap = @{}
 }
 
@@ -76,7 +78,53 @@ function Rollback {
 }
 
 function Restore-Database {
-    Show-Message "Restoring Is Not Developed Yet" "INFO"
+    Show-Message "Starting database restore process..." "INFO"
+
+    foreach ($prefix in $config.Prefixes) {
+        $dbName = $config.DbMap[$prefix]
+        $latestBackup = Get-ChildItem -Path $config.LocalPath -Filter "$prefix*.bak" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+
+        if (-not $latestBackup) {
+            Show-Message "No backup file found for prefix '$prefix'. Skipping..." "WARN"
+            continue
+        }
+
+        Show-Message "Restoring database '$dbName' from file '$($latestBackup.Name)'" "INFO"
+
+        $mdfPath = Join-Path $config.SqlDataPath "$dbName.mdf"
+        $ldfPath = Join-Path $config.SqlLogPath "${dbName}_log.ldf"
+
+        $sql = @"
+USE [master];
+IF EXISTS (SELECT name FROM sys.databases WHERE name = N'$dbName')
+BEGIN
+    ALTER DATABASE [$dbName] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+    DROP DATABASE [$dbName];
+END;
+
+RESTORE DATABASE [$dbName]
+FROM DISK = N'$($latestBackup.FullName)'
+WITH MOVE '$dbName' TO N'$mdfPath',
+     MOVE '${dbName}_log' TO N'$ldfPath',
+     REPLACE;
+"@
+
+        $tempSqlFile = Join-Path $env:TEMP "restore_$dbName.sql"
+        $sql | Out-File -FilePath $tempSqlFile -Encoding UTF8
+
+        $cmd = "sqlcmd -S `"$($config.SqlServerInstance)`" -i `"$tempSqlFile`""
+        $restoreResult = Invoke-Expression $cmd
+
+        if ($LASTEXITCODE -eq 0) {
+            Show-Message "Successfully restored '$dbName'." "SUCCESS"
+        } else {
+            Show-Message "Failed to restore '$dbName'. Check SQL Server logs for more details." "ERROR"
+        }
+
+        Remove-Item -Path $tempSqlFile -Force
+    }
+
+    Show-Message "Database restore process complete." "DONE"
 }
 
 function Main($action) {
