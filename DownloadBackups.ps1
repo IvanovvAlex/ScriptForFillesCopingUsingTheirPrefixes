@@ -8,6 +8,25 @@ if (-Not (Test-Path $configPath)) {
 
 $config = Get-Content $configPath -Raw | ConvertFrom-Json
 
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+
+public class SleepUtil {
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern uint SetThreadExecutionState(uint esFlags);
+}
+"@
+
+# Prevent sleep
+# ES_CONTINUOUS (0x80000000) | ES_SYSTEM_REQUIRED (0x00000001)
+[Sleeputil]::SetThreadExecutionState(0x80000001)
+
+function RestoreSleep(){
+    # Re-enable sleep
+    [Sleeputil]::SetThreadExecutionState(0x80000000)
+}
+
 function Show-Message($msg, $type = "INFO") {
     $prefix = "[{0}] {1}" -f $type, (Get-Date -Format "HH:mm:ss")
     Write-Host "$prefix $msg"
@@ -109,6 +128,8 @@ catch {
     Write-Host "[FATAL ERROR] $($_.Exception.Message)" -ForegroundColor Red
 }
 finally {
+    RestoreSleep
+
     Write-Host "`nPress any key to exit..."
     $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 }
