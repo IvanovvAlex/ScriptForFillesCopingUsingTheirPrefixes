@@ -180,15 +180,14 @@ function Main($action) {
                 $shouldCopy = $true
 
                 if (Test-Path $destination) {
-                    $sourceHash = Get-FileHash -Path $file.FullName -Algorithm SHA256
-                    $destHash = Get-FileHash -Path $destination -Algorithm SHA256
-
-                    if ($sourceHash.Hash -eq $destHash.Hash) {
-                        Show-Message "File '$($file.Name)' already exists and is identical. Skipping." "INFO"
+                    $sourceSize = (Get-Item $file.FullName).Length
+                    $destSize = (Get-Item $destination).Length
+                
+                    if ($sourceSize -eq $destSize) {
+                        Show-Message "File '$($file.Name)' already exists with same size. Skipping." "INFO"
                         $shouldCopy = $false
                     }
                     else {
-                        # Archive the old version before replacing
                         $archivePath = Join-Path $config.ArchivePath $file.Name
                         Move-Item -Path $destination -Destination $archivePath -Force
                         $movedFiles += [PSCustomObject]@{ Original = $destination; Destination = $archivePath }
