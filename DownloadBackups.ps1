@@ -23,12 +23,9 @@ public class SleepUtil {
 }
 "@
 
-# Prevent sleep
-# ES_CONTINUOUS (0x80000000) | ES_SYSTEM_REQUIRED (0x00000001)
 [Sleeputil]::SetThreadExecutionState(0x80000001)
 
 function RestoreSleep() {
-    # Re-enable sleep
     [Sleeputil]::SetThreadExecutionState(0x80000000)
 }
 
@@ -136,25 +133,15 @@ function Main($action) {
                 throw "No matching files found on remote path."
             }
 
-            Show-Message "Step 2: Moving existing .bak files to archive..."
-
-            $existingBakFiles = Get-ChildItem -Path $config.LocalPath -File -Filter "*.bak"
-            foreach ($file in $existingBakFiles) {
-                $destination = Join-Path $config.ArchivePath $file.Name
-                Move-Item -Path $file.FullName -Destination $destination -Force
-                $movedFiles += [PSCustomObject]@{ Original = $file.FullName; Destination = $destination }
-            }
-
-            Show-Message "Step 3: Copying files from remote..."
+            Show-Message "Step 2 & 3: Syncing files from remote..."
 
             $i = 0
             foreach ($file in $matchedFiles) {
                 $i++
                 $percent = [int](($i / $matchedFiles.Count) * 100)
-                Write-Progress -Activity "Copying files" -Status "$percent% Complete" -PercentComplete $percent
+                Write-Progress -Activity "Syncing files" -Status "$percent% Complete" -PercentComplete $percent
 
                 $destination = Join-Path $config.LocalPath $file.Name
-
                 $shouldCopy = $true
 
                 if (Test-Path $destination) {
@@ -164,6 +151,12 @@ function Main($action) {
                     if ($sourceHash.Hash -eq $destHash.Hash) {
                         Show-Message "File '$($file.Name)' already exists and is identical. Skipping." "INFO"
                         $shouldCopy = $false
+                    } else {
+                        # Archive the old version before replacing
+                        $archivePath = Join-Path $config.ArchivePath $file.Name
+                        Move-Item -Path $destination -Destination $archivePath -Force
+                        $movedFiles += [PSCustomObject]@{ Original = $destination; Destination = $archivePath }
+                        Show-Message "Archived old version of '$($file.Name)'." "WARN"
                     }
                 }
 
@@ -174,8 +167,8 @@ function Main($action) {
                 }
             }
 
-            Write-Progress -Activity "Copying files" -Completed
-            Show-Message "Step 4: All files copied successfully." "SUCCESS"
+            Write-Progress -Activity "Syncing files" -Completed
+            Show-Message "File sync complete." "SUCCESS"
         }
 
         if ($action -eq "Restore" -or $action -eq "Both") {
