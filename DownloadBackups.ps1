@@ -90,4 +90,13 @@ function Main {
     }
 }
 
-Main
+try {
+    Main
+}
+catch {
+    Write-Host "[FATAL ERROR] $($_.Exception.Message)" -ForegroundColor Red
+}
+finally {
+    Write-Host "`nPress any key to exit..."
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+}
