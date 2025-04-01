@@ -223,26 +223,33 @@ function Main($action) {
                 $percent = [int](($i / $matchedFiles.Count) * 100)
                 Write-Progress -Activity "Syncing files" -Status "$percent% Complete" -PercentComplete $percent
 
-                $destination = Join-Path $config.LocalPath $file.Name
-                $shouldCopy = $true
+                $prefix = $config.Prefixes | Where-Object { $file.Name.StartsWith($_) } | Select-Object -First 1
+                if (-not $prefix) {
+                    Show-Message "No matching prefix for file '$($file.Name)'. Skipping..." "WARN"
+                    continue
+                }
 
-                if (Test-Path $destination) {
-                    $sourceSize = (Get-Item $file.FullName).Length
-                    $destSize = (Get-Item $destination).Length
-                
-                    if ($sourceSize -eq $destSize) {
-                        Show-Message "File '$($file.Name)' already exists with same size. Skipping." "INFO"
-                        $shouldCopy = $false
-                    }
-                    else {
-                        $archivePath = Join-Path $config.ArchivePath $file.Name
-                        Move-Item -Path $destination -Destination $archivePath -Force
-                        $movedFiles += [PSCustomObject]@{ Original = $destination; Destination = $archivePath }
-                        Show-Message "Archived old version of '$($file.Name)'." "WARN"
+                $localMatches = Get-ChildItem -Path $config.LocalPath -Filter "$prefix*.bak"
+                $skip = $false
+
+                foreach ($local in $localMatches) {
+                    if ($local.Name -eq $file.Name -and
+                        (Get-Item $local.FullName).Length -eq (Get-Item $file.FullName).Length) {
+                        Show-Message "File '$($file.Name)' already exists with same name and size. Skipping." "INFO"
+                        $skip = $true
+                        break
                     }
                 }
 
-                if ($shouldCopy) {
+                if (-not $skip) {
+                    foreach ($local in $localMatches) {
+                        $archivePath = Join-Path $config.ArchivePath $local.Name
+                        Move-Item -Path $local.FullName -Destination $archivePath -Force
+                        $movedFiles += [PSCustomObject]@{ Original = $local.FullName; Destination = $archivePath }
+                        Show-Message "Archived old file '$($local.Name)'." "WARN"
+                    }
+
+                    $destination = Join-Path $config.LocalPath $file.Name
                     Copy-Item -Path $file.FullName -Destination $destination -Force
                     $copiedFiles += $destination
                     Show-Message "Copied: $($file.Name)" "INFO"
