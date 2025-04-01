@@ -91,6 +91,29 @@ function Rollback {
     Show-Message "Rollback completed." "DONE"
 }
 
+function Get-LogicalFileNames {
+    param (
+        [string]$backupPath,
+        [string]$sqlInstance
+    )
+
+    $query = "RESTORE FILELISTONLY FROM DISK = N'$backupPath';"
+    $result = sqlcmd -S $sqlInstance -Q $query -h -1 -s "|"
+
+    $logicalFiles = @()
+    foreach ($line in $result) {
+        if ($line -match '^\s*(.+?)\|') {
+            $columns = $line -split '\|'
+            $logicalFiles += [PSCustomObject]@{
+                LogicalName = $columns[0].Trim()
+                PhysicalName = $columns[1].Trim()
+            }
+        }
+    }
+
+    return $logicalFiles
+}
+
 function Restore-Database {
     Show-Message "Starting database restore process..." "INFO"
 
@@ -108,19 +131,29 @@ function Restore-Database {
         $mdfPath = Join-Path $config.SqlDataPath "$dbName.mdf"
         $ldfPath = Join-Path $config.SqlLogPath "${dbName}_log.ldf"
 
-        $sql = @"
-USE [master];
-IF EXISTS (SELECT name FROM sys.databases WHERE name = N'$dbName')
-BEGIN
-    ALTER DATABASE [$dbName] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-    DROP DATABASE [$dbName];
-END;
+        $logicalFiles = Get-LogicalFileNames -backupPath $latestBackup.FullName -sqlInstance $config.SqlServerInstance
 
-RESTORE DATABASE [$dbName]
-FROM DISK = N'$($latestBackup.FullName)'
-WITH MOVE '$dbName' TO N'$mdfPath',
-     MOVE '${dbName}_log' TO N'$ldfPath',
-     REPLACE;
+        $mdfLogical = $logicalFiles | Where-Object { $_.PhysicalName -like "*.mdf" } | Select-Object -First 1
+        $ldfLogical = $logicalFiles | Where-Object { $_.PhysicalName -like "*.ldf" } | Select-Object -First 1
+        
+        if (-not $mdfLogical -or -not $ldfLogical) {
+            Show-Message "Unable to determine logical file names for '$($latestBackup.Name)'" "ERROR"
+            continue
+        }
+        
+        $sql = @"
+        USE [master];
+        IF EXISTS (SELECT name FROM sys.databases WHERE name = N'$dbName')
+        BEGIN
+            ALTER DATABASE [$dbName] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+            DROP DATABASE [$dbName];
+        END;
+        
+        RESTORE DATABASE [$dbName]
+        FROM DISK = N'$($latestBackup.FullName)'
+        WITH MOVE N'$($mdfLogical.LogicalName)' TO N'$mdfPath',
+             MOVE N'$($ldfLogical.LogicalName)' TO N'$ldfPath',
+             REPLACE;
 "@
 
         $tempSqlFile = Join-Path $env:TEMP "restore_$dbName.sql"
